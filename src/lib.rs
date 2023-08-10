@@ -7,6 +7,7 @@ pub fn about() -> String {
 
 /// Shell command structure
 /// Holds all the information needed to have the OS dispatch a process
+#[derive(Debug)]
 pub struct ShellCommand {
     env_var: Option<HashMap<String, String>>,
     stdin: Option<String>,
@@ -40,6 +41,35 @@ impl ShellCommand {
             argv,
         }
     }
+
+    /// Add envvars to a ShellCommand
+    pub fn envs<I, K, V>(self, envs: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        let env_addition: Vec<(String, String)> = envs
+            .into_iter()
+            .map(|(key, value): (K, V)| (key.into(), value.into()))
+            .collect();
+
+        let mut env_var = match self.env_var {
+            Some(v) => v,
+            None => HashMap::new(),
+        };
+
+        for (key, value) in env_addition {
+            env_var.insert(key, value);
+        }
+
+        ShellCommand {
+            env_var: Some(env_var),
+            stdin: self.stdin,
+            argv: self.argv,
+        }
+    }
+
 }
 
 mod tests;
