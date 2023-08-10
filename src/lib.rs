@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    io::Write,
+    process::{Command, Stdio},
+};
 
 pub fn about() -> String {
     let abt_str = "A simple library to run shell commands in rust programs";
@@ -10,7 +14,7 @@ pub fn about() -> String {
 #[derive(Debug)]
 pub struct ShellCommand {
     env_var: Option<HashMap<String, String>>,
-    stdin: Option<String>,
+    stdin: Option<Result<String, String>>,
     argv: Vec<String>,
 }
 
@@ -70,6 +74,74 @@ impl ShellCommand {
         }
     }
 
+    /// Pipe a string into a ShellCommand
+    pub fn pipe_string(self, input: impl Into<String>) -> Self {
+        ShellCommand {
+            env_var: self.env_var,
+            stdin: Some(Ok(input.into())),
+            argv: self.argv,
+        }
+    }
+
+    /// Pipe the stdout of one ShellCommand into stdin of another ShellCommand
+    pub fn pipe_stdout(self, cmd: Self) -> Self {
+        ShellCommand {
+            env_var: self.env_var,
+            stdin: Some(cmd.run()),
+            argv: self.argv,
+        }
+    }
+
+    /// Run the ShellCommand
+    pub fn run(self) -> Result<String, String> {
+        let cmd_arg0 = &self.argv[0];
+        let mut cmd = Command::new(cmd_arg0);
+
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        cmd.args(&self.argv[1..]);
+
+        if let Some(e) = self.env_var {
+            cmd.envs(e);
+        }
+
+        let mut spawned = cmd.spawn().expect(EXP_SP);
+
+        if let Some(s) = self.stdin {
+            match s {
+                Ok(s) => {
+                    if let Some(mut stdin) = spawned.stdin.take() {
+                        stdin
+                            .write_all(s.as_bytes())
+                            .expect("Failed to write to stdin");
+                        drop(stdin);
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        let output = spawned.wait_with_output().expect(EXP_EXE);
+
+        if !output.status.success() {
+            let stde = String::from_utf8(output.stderr).expect(EXP_SERR);
+            return Err(stde);
+        }
+
+        Ok(String::from_utf8(output.stdout).expect(EXP_SOUT))
+    }
+
+    /// What is the name of the program this command will call
+    pub fn command(&self) -> &String {
+        &self.argv[0]
+    }
 }
+
+static EXP_SOUT: &str = "Could not format stdout into utf-8";
+static EXP_SERR: &str = "Could not format stderr into utf-8";
+static EXP_SP: &str = "Failed to spawn child process";
+static EXP_EXE: &str = "Failed to execute child process";
 
 mod tests;
