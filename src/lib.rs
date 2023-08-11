@@ -11,11 +11,17 @@ pub fn about() -> String {
 
 /// Shell command structure
 /// Holds all the information needed to have the OS dispatch a process
-#[derive(Debug)]
 pub struct ShellCommand {
     env_var: Option<HashMap<String, String>>,
-    stdin: Option<Result<String, String>>,
+    stdin: Option<String>,
     argv: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct ShellCommandOutput {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 impl ShellCommand {
@@ -78,22 +84,13 @@ impl ShellCommand {
     pub fn pipe_string(self, input: impl Into<String>) -> Self {
         ShellCommand {
             env_var: self.env_var,
-            stdin: Some(Ok(input.into())),
-            argv: self.argv,
-        }
-    }
-
-    /// Pipe the stdout of one ShellCommand into stdin of another ShellCommand
-    pub fn pipe_stdout(self, cmd: Self) -> Self {
-        ShellCommand {
-            env_var: self.env_var,
-            stdin: Some(cmd.run()),
+            stdin: Some(input.into()),
             argv: self.argv,
         }
     }
 
     /// Run the ShellCommand
-    pub fn run(self) -> Result<String, String> {
+    pub fn run(self) -> Result<ShellCommandOutput, ShellCommandOutput> {
         let cmd_arg0 = &self.argv[0];
         let mut cmd = Command::new(cmd_arg0);
 
@@ -110,27 +107,35 @@ impl ShellCommand {
         let mut spawned = cmd.spawn().expect(EXP_SP);
 
         if let Some(s) = self.stdin {
-            match s {
-                Ok(s) => {
-                    if let Some(mut stdin) = spawned.stdin.take() {
-                        stdin
-                            .write_all(s.as_bytes())
-                            .expect("Failed to write to stdin");
-                        drop(stdin);
-                    }
-                }
-                Err(e) => return Err(e),
+            if let Some(mut stdin) = spawned.stdin.take() {
+                stdin
+                    .write_all(s.as_bytes())
+                    .expect("Failed to write to stdin");
+                drop(stdin);
             }
         }
 
         let output = spawned.wait_with_output().expect(EXP_EXE);
 
+        let sc_output = ShellCommandOutput {
+            success: output.status.success(),
+            stdout: String::from_utf8(output.stdout).expect(EXP_SOUT),
+            stderr: String::from_utf8(output.stderr).expect(EXP_SERR),
+        };
+
         if !output.status.success() {
-            let stde = String::from_utf8(output.stderr).expect(EXP_SERR);
-            return Err(stde);
+            return Err(sc_output);
         }
 
-        Ok(String::from_utf8(output.stdout).expect(EXP_SOUT))
+        Ok(sc_output)
+    }
+
+    /// Extract the output of the command and ignore the success
+    pub fn result(self) -> ShellCommandOutput {
+        match self.run() {
+            Ok(s) => s,
+            Err(s) => s,
+        }
     }
 
     /// What is the name of the program this command will call

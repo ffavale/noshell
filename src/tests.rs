@@ -33,15 +33,28 @@ fn pipe_string_into_cmd() {
     let cmd = ShellCommand::new("grep")
         .args(["a."])
         .pipe_string("asdfqweriopmnbvcxz\ndfsdfiwuehfhgfbiucshd\nsdfsdfhhurrr");
-    let _output = cmd.run().unwrap();
-    // println!("{}", _output);
+    let output = cmd.run().unwrap();
+    assert_eq!(output.stdout, "asdfqweriopmnbvcxz\n");
 }
 
 #[test]
 fn pipe_cmd_into_cmd() {
     let cmd =
         ShellCommand::new("printenv").envs(vec![("TESTVAR", "value1"), ("ANOTHERVAR", "value2")]);
-    let grep = ShellCommand::new("grep").args(["VAR="]).pipe_stdout(cmd);
-    let _output = grep.run().unwrap();
-    // println!("{}", _output);
+    let grep = ShellCommand::new("grep")
+        .args(["VAR=value[1-2]"])
+        .pipe_string(cmd.run().unwrap().stdout);
+    let output = grep.run().unwrap();
+    assert_eq!(output.stdout, "ANOTHERVAR=value2\nTESTVAR=value1\n");
+}
+
+#[test]
+fn result_extraction() {
+    let cmd =
+        ShellCommand::new("printenv").envs(vec![("TESTVAR", "value1"), ("ANOTHERVAR", "value2")]);
+    let grep = ShellCommand::new("grep")
+        .args(["VAR=value[1-2]"])
+        .pipe_string(cmd.result().stdout);
+    let output = grep.result();
+    assert_eq!(output.stdout, "ANOTHERVAR=value2\nTESTVAR=value1\n");
 }
